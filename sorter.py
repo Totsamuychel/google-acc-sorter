@@ -6,29 +6,29 @@ import ollama
 import logging
 from google.oauth2.service_account import Credentials
 
-# --- НАСТРОЙКИ ---
-# Путь к папке с исходными файлами
+# --- Settings ---
+# Path to folder with source files
 SOURCE_DIR = 'source_files'
-# Имя файла с ключами доступа Google API
+# Name of the file with access keys Google API
 CREDENTIALS_FILE = 'credentials.json'
-# Имя Google Таблицы, в которую будут сохраняться данные
+# The name of the Google Sheet where the data will be saved.
 SHEET_NAME = 'Учётные записи Google'
-# Имя листа в таблице
+# Sheet name in the table
 WORKSHEET_NAME = 'Аккаунты'
-# Заголовки для таблицы
+# Table headings
 HEADERS = ['Логин', 'Пароль', 'Резервная почта', '  ']
-# Модель Ollama для разбора сложных строк
+# Ollama model for parsing complex strings
 OLLAMA_MODEL = 'gpt-oss:20b'
 
-# --- КОНФИГУРАЦИЯ ЛОГГИРОВАНИЯ ---
+# --- LOGGING CONFIGURATION ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def authenticate_gspread():
     """
-    Аутентификация в Google Sheets с использованием сервисного аккаунта.
-    Возвращает авторизованный клиент gspread.
+    Authenticate in Google Sheets using a service account.
+     Returns an authorized gspread client.
     """
-    logging.info("Попытка аутентификации в Google API...")
+    logging.info("Attempting to authenticate in Google API...")
     try:
         scopes = [
             'https://www.googleapis.com/auth/spreadsheets',
@@ -36,52 +36,52 @@ def authenticate_gspread():
         ]
         creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
         client = gspread.authorize(creds)
-        logging.info("Аутентификация прошла успешно.")
+        logging.info("Authentication was successful.")
         return client
     except FileNotFoundError:
-        logging.error(f"Файл '{CREDENTIALS_FILE}' не найден. Пожалуйста, следуйте инструкции в начале скрипта.")
+        logging.error(f"Файл '{CREDENTIALS_FILE}' not found. Please follow the instructions at the beginning of the script.")
         return None
     except Exception as e:
-        logging.error(f"Произошла ошибка при аутентификации: {e}")
+        logging.error(f"An error occurred during authentication.: {e}")
         return None
 
 def get_or_create_worksheet(client, sheet_name, worksheet_name):
     """
-    Получает или создает Google Таблицу и лист в ней.
+    Gets or creates a Google Sheet and a sheet within it.
     """
     try:
-        logging.info(f"Открытие таблицы '{sheet_name}'...")
+        logging.info(f"Opening a table '{sheet_name}'...")
         spreadsheet = client.open(sheet_name)
     except gspread.exceptions.SpreadsheetNotFound:
-        logging.warning(f"Таблица '{sheet_name}' не найдена. Создаю новую...")
+        logging.warning(f"Table '{sheet_name}' not found. Create new...")
         spreadsheet = client.create(sheet_name)
-        # Важно: делимся правами на редактирование с самим собой (сервисным аккаунтом)
+        # Important: Share editing rights with yourself (service account)
         spreadsheet.share(client.auth.service_account_email, perm_type='user', role='writer')
-        logging.info(f"Таблица '{sheet_name}' создана и доступ предоставлен.")
+        logging.info(f"Table '{sheet_name}' created and access granted.")
 
     try:
         worksheet = spreadsheet.worksheet(worksheet_name)
-        logging.info(f"Лист '{worksheet_name}' найден.")
+        logging.info(f"Sheet '{worksheet_name}' found.")
     except gspread.exceptions.WorksheetNotFound:
-        logging.warning(f"Лист '{worksheet_name}' не найден. Создаю новый...")
+        logging.warning(f"Sheet '{worksheet_name}' not found. Create new...")
         worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows="1000", cols="20")
-        logging.info(f"Лист '{worksheet_name}' создан.")
+        logging.info(f"Sheet '{worksheet_name}' created.")
 
     return worksheet
 
 def ensure_headers(worksheet, headers):
     """
-    Проверяет наличие заголовков на листе и добавляет их, если они отсутствуют.
+    Checks for headers on the sheet and adds them if they are missing.
     """
     try:
         first_row = worksheet.row_values(1)
         if first_row != headers:
-            logging.info("Заголовки отсутствуют или некорректны. Добавляю стандартные заголовки.")
+            logging.info("Headings are missing or incorrect. I'm adding standard headings.")
             worksheet.update('A1', [headers])
     except gspread.exceptions.APIError as e:
-        # Если лист пустой, API может вернуть ошибку. В этом случае просто добавляем заголовки.
+        # If the sheet is empty, the API may return an error. In this case, simply add the headers.
         if 'exceeds grid limits' in str(e):
-            logging.info("Лист пустой. Добавляю заголовки.")
+            logging.info("The sheet is empty. I'm adding headings.")
             worksheet.update('A1', [headers])
         else:
             raise e
@@ -89,18 +89,18 @@ def ensure_headers(worksheet, headers):
 
 def parse_with_ollama(line_content):
     """
-    Использует модель Ollama для извлечения данных из строки сложного формата.
+    Uses the Ollama model to extract data from a complex format string.
     """
     system_prompt = (
-        "Ты — эксперт по извлечению данных. Твоя задача — извлечь логин, пароль и "
-        "резервную почту из предоставленной строки. Данные должны соответствовать формату "
-        "логин:пароль:резервная_почта. Если в строке несколько записей, извлеки только "
-        "первую валидную. В ответе должна быть ТОЛЬКО строка в формате 'login:password:backup_email'. "
-        "Если не удаётся извлечь данные, ответь одним словом: 'ERROR'."
+        "You are a data extraction expert. Your task is to extract the login, password, and "
+        "backup email from the provided line. The data must match the format "
+        "login:password:backup_mail. If there are multiple entries in the line, extract only "
+        "the first valid one. The response must contain ONLY a string in the format 'login:password:backup_email'. "
+        "If you can't extract the data, please answer in one word: 'ERROR'."
     )
     
     try:
-        logging.info(f"Строка слишком сложная, пробую распознать с помощью Ollama: '{line_content[:50]}...'")
+        logging.info(f"The string is too complex, I'm trying to recognize it using Ollama.: '{line_content[:50]}...'")
         response = ollama.chat(
             model=OLLAMA_MODEL,
             messages=[
@@ -111,48 +111,47 @@ def parse_with_ollama(line_content):
         result = response['message']['content'].strip()
         
         if result != 'ERROR' and len(result.split(':')) == 3:
-            logging.info(f"Ollama успешно распознала данные: {result}")
+            logging.info(f"Ollama successfully recognized the data: {result}")
             return result.split(':')
         else:
-            logging.warning("Ollama не смогла распознать данные в строке.")
+            logging.warning("Ollama could not recognize the data in the string.")
             return None
     except Exception as e:
-        logging.error(f"Ошибка при обращении к Ollama. Убедитесь, что сервер запущен. Ошибка: {e}")
+        logging.error(f"There was an error accessing Ollama. Make sure the server is running. Error: {e}")
         return None
 
 
 def parse_data_line(line):
     """
-    Парсит одну строку данных. Сначала пытается простым разделением,
-    затем, в случае неудачи, обращается к Ollama.
+    Parses a single row of data. First, it tries simple splitting, then, if that fails, it resorts to Ollama.
     """
     line = line.strip()
     if not line:
         return None
 
     parts = line.split(':')
-    # Простая проверка на стандартный формат login:password:email
+    # Simple check for standard format login:password:email
     if len(parts) == 3 and '@' in parts[0] and '@' in parts[2]:
         return parts
 
-    # Если простой парсинг не удался, используем "тяжелую артиллерию"
+    # If simple parsing fails, we use the "heavy artillery"
     return parse_with_ollama(line)
 
 
 def main():
     """
-    Главная функция скрипта.
+    The main function of the script.
     """
-    # 1. Проверка наличия необходимых файлов и папок
+    # 1. Checking the presence of necessary files and folders
     if not os.path.exists(SOURCE_DIR):
-        logging.error(f"Папка '{SOURCE_DIR}' не найдена. Пожалуйста, создайте её и поместите в неё .txt файлы.")
+        logging.error(f"Folder '{SOURCE_DIR}' not found. Please create it and place the .txt files in it.")
         return
         
     if not os.path.exists(CREDENTIALS_FILE):
-        logging.error(f"Файл '{CREDENTIALS_FILE}' не найден. Следуйте инструкции по настройке.")
+        logging.error(f"File '{CREDENTIALS_FILE}' Not found. Follow the setup instructions.")
         return
 
-    # 2. Аутентификация и подготовка Google Таблицы
+    # 2. Authenticate and prepare Google Sheets
     client = authenticate_gspread()
     if not client:
         return
@@ -160,15 +159,15 @@ def main():
     worksheet = get_or_create_worksheet(client, SHEET_NAME, WORKSHEET_NAME)
     ensure_headers(worksheet, HEADERS)
 
-    # 3. Чтение и парсинг данных из файлов
+    # 3. Reading and parsing data from files
     all_accounts_data = []
     source_files = [f for f in os.listdir(SOURCE_DIR) if f.endswith('.txt')]
 
     if not source_files:
-        logging.warning(f"В папке '{SOURCE_DIR}' не найдено файлов с расширением .txt.")
+        logging.warning(f"In folder '{SOURCE_DIR}' not found files with extension .txt.")
         return
 
-    logging.info(f"Найдено {len(source_files)} текстовых файлов для обработки.")
+    logging.info(f"Found {len(source_files)} text files for processing.")
 
     for filename in source_files:
         filepath = os.path.join(SOURCE_DIR, filename)
@@ -177,27 +176,27 @@ def main():
                 parsed_data = parse_data_line(line)
                 if parsed_data:
                     all_accounts_data.append(parsed_data)
-                elif line.strip(): # Выводим предупреждение только для непустых строк
-                    logging.warning(f"Не удалось разобрать строку: '{line.strip()}' в файле {filename}")
+                elif line.strip(): # We display a warning only for non-empty lines.
+                    logging.warning(f"Unable to parse string: '{line.strip()}' in file {filename}")
 
-    # 4. Формирование и запись данных в таблицу
+    # 4. Forming and writing data to a table
     if not all_accounts_data:
-        logging.info("Новых данных для добавления в таблицу не найдено.")
+        logging.info("No new data was found to add to the table..")
         return
 
-    logging.info(f"Подготовлено {len(all_accounts_data)} записей для добавления в Google Таблицу.")
+    logging.info(f"Prepared {len(all_accounts_data)} entries to add to Google Таблицу.")
     
-    # Используем pandas для удобного формирования строк
-    df = pd.DataFrame(all_accounts_data, columns=['Логин', 'Пароль', 'Резервная почта'])
-    df['Статус'] = 'Добавлено' # Добавляем статус для каждой новой строки
+    # Using pandas for easy string formation
+    df = pd.DataFrame(all_accounts_data, columns=['Login', 'Password', 'Backup mail'])
+    df['Статус'] = 'Added' # Add a status for each new line
     
-    # Преобразуем DataFrame в список списков для gspread
+    # Converting a DataFrame to a List of Lists for gspread
     rows_to_append = df.values.tolist()
     
-    # Добавляем все строки одним запросом для эффективности
+    # Add all rows in one query for efficiency
     worksheet.append_rows(rows_to_append, value_input_option='USER_ENTERED')
     
-    logging.info(f"Успешно добавлено {len(rows_to_append)} новых записей в таблицу '{SHEET_NAME}'.")
+    logging.info(f"Successfully added {len(rows_to_append)} new entries in the table '{SHEET_NAME}'.")
 
 
 if __name__ == '__main__':
