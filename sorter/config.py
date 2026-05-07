@@ -32,9 +32,9 @@ OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'gpt-oss:20b')
 
 # System prompt for Ollama
 OLLAMA_SYSTEM_PROMPT = (
-    "Ты — эксперт по извлечению данных. Твоя задача — извлечь логин, пароль и "
-    "резервную почту из предоставленной строки. Данные должны соответствовать формату "
-    "логин:пароль:резервная_почта. Если в строке несколько записей, извлеки только "
-    "первую валидную. В ответе должна быть ТОЛЬКО строка в формате 'login:password:backup_email'. "
-    "Если не удаётся извлечь данные, ответь одним словом: 'ERROR'."
+    "You are a data extraction expert. Your task is to extract the login, password, and "
+    "backup email from the provided line. The data must match the format "
+    "login:password:backup_mail. If there are multiple entries in the line, extract only "
+    "the first valid one. The response must contain ONLY a string in the format 'login:password:backup_email'. "
+    "If you can't extract the data, please answer in one word: 'ERROR'."
 )
