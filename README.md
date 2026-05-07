@@ -8,6 +8,49 @@
 
 ---
 
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    A["🚀 main.py\nOrchestrator"] --> B["📂 file_reader.py\nScan source_files/\nMove to archive/"]
+
+    B --> C["📄 .txt files\n(raw credential strings)"]
+
+    C --> D["🧠 parser.py\nDual Parsing Engine"]
+
+    subgraph Parsing["🔍 Parsing Logic"]
+        D --> E{"Line format?"}
+        E -- "Standard\nlogin:pass:email" --> F["⚡ Regex / Split\n(fast path)"]
+        E -- "Messy / Complex" --> G["🤖 Ollama LLM\n(local AI fallback)"]
+        G --> H["🖥️ Ollama REST API\nlocalhost:11434\ngpt-oss:20b"]
+        F --> I["✅ Parsed Record\n{login, password, email}"]
+        H --> I
+    end
+
+    I --> J["📊 gsheets.py\nGoogle Sheets API"]
+
+    subgraph Sheets["📄 Google Sheets"]
+        J --> K["🔑 Auth\nService Account\ncredentials.json"]
+        K --> L["📅 Spreadsheet\nУчётные записи Google\n(auto-create if missing)"]
+        L --> M["➕ Append rows\n(login · password · email)"]
+    end
+
+    B --> N["🗄️ archive/\nMove processed .txt files\n(prevents re-upload)"]
+
+    subgraph Config["⚙️ Config"]
+        O["📝 .env\nSHEET_NAME\nSOURCE_DIR · ARCHIVE_DIR\nOLLAMA_MODEL"]
+        P["config.py\nLoad env vars"]
+        O --> P
+    end
+
+    A --> Config
+    P --> J
+    P --> H
+    P --> B
+```
+
+---
+
 ## ✨ Features
 
 - **Dual Parsing Engine**: Fast split for standard `login:pass:email` lines, and AI fallback (Ollama) for messy strings with extra text.
